@@ -5,359 +5,430 @@ import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
 
-TOKEN = "8277742376:AAFYbNj7sLroVHcOcRgYkQf4qnFow6hvOV4"
-ADMIN_IDS = [5474672519]
+TOKEN = "8637771357:AAEKuRfsiG--3bjEsgUKcTDLE-zVVuwseFA"
+ADMIN_IDS = [5474672519,8278688915,6058876211]
 COOLDOWN = 10
+
+GROUP_LINK = "https://t.me/dynamo_otp_group"
 
 allUsers = set()
 userService = {}
 userCountry = {}
 userCooldown = {}
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO)
 
-# Ensure directories exist
-for service in ["telegram", "facebook", "whatsapp"]:
-    os.makedirs(f"numbers/{service}", exist_ok=True)
-    countries_path = f"numbers/{service}/countries.json"
-    if not os.path.exists(countries_path):
-        with open(countries_path, "w", encoding="utf-8") as f:
-            json.dump({}, f, indent=2, ensure_ascii=False)
+for service in ["telegram","facebook","whatsapp"]:
+    os.makedirs(f"numbers/{service}",exist_ok=True)
+    path=f"numbers/{service}/countries.json"
+    if not os.path.exists(path):
+        with open(path,"w") as f:
+            json.dump({},f)
 
-# ===== Helper Functions =====
-def is_admin(uid): 
+def is_admin(uid):
     return uid in ADMIN_IDS
 
 def load_countries(service):
-    path = f"numbers/{service}/countries.json"
-    with open(path, "r", encoding="utf-8") as f:
+    with open(f"numbers/{service}/countries.json") as f:
         return json.load(f)
 
-def save_countries(service, data):
-    path = f"numbers/{service}/countries.json"
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+def save_countries(service,data):
+    with open(f"numbers/{service}/countries.json","w") as f:
+        json.dump(data,f,indent=2)
 
-def read_numbers(service, code):
-    path = f"numbers/{service}/{code}.txt"
-    if not os.path.exists(path): return []
-    with open(path, "r", encoding="utf-8") as f:
+def read_numbers(service,code):
+    path=f"numbers/{service}/{code}.txt"
+    if not os.path.exists(path):
+        return []
+    with open(path) as f:
         return [x.strip() for x in f.readlines() if x.strip()]
 
-def append_numbers(service, code, numbers):
-    path = f"numbers/{service}/{code}.txt"
-    with open(path, "a", encoding="utf-8") as f:
-        f.write("\n".join(numbers) + "\n")
+def overwrite_numbers(service,code,numbers):
+    path=f"numbers/{service}/{code}.txt"
+    with open(path,"w") as f:
+        f.write("\n".join(numbers))
 
-def overwrite_numbers(service, code, numbers):
-    path = f"numbers/{service}/{code}.txt"
-    with open(path, "w", encoding="utf-8") as f:
-        if numbers:
-            f.write("\n".join(numbers) + "\n")
+def append_numbers(service,code,new_numbers):
+    old=set(read_numbers(service,code))
+    new=set(new_numbers)
+    merged=list(old|new)
+    overwrite_numbers(service,code,merged)
 
-def delete_numbers(service, code):
-    path = f"numbers/{service}/{code}.txt"
-    if os.path.exists(path): 
+def delete_numbers(service,code):
+    path=f"numbers/{service}/{code}.txt"
+    if os.path.exists(path):
         os.remove(path)
 
-def cooldown_left(uid):
-    now = time.time()
-    if uid in userCooldown:
-        remain = COOLDOWN - (now - userCooldown[uid])
-        return int(remain) if remain > 0 else 0
-    return 0
-
-def get_country_keyboard(service, action_prefix):
-    countries = load_countries(service)
-    keyboard = [[InlineKeyboardButton(f"{flag} {data['name']}", callback_data=f"{action_prefix}_{flag}")] 
-                for flag, data in countries.items()]
+def get_country_keyboard(service,prefix):
+    countries=load_countries(service)
+    keyboard=[[InlineKeyboardButton(f"{f} {d['name']}",callback_data=f"{prefix}_{f}")] for f,d in countries.items()]
     return InlineKeyboardMarkup(keyboard)
 
-async def safe_edit_message(query, text, reply_markup=None, parse_mode=None):
-    try:
-        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
-    except Exception as e:
-        if "Message is not modified" in str(e):
-            pass
-        else:
-            raise e
-
-# ===== Start Command =====
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
+async def start(update:Update,context:ContextTypes.DEFAULT_TYPE):
+    uid=update.effective_user.id
     allUsers.add(uid)
-    keyboard = [
-        [InlineKeyboardButton("📘 Facebook", callback_data="service_facebook")],
-        [InlineKeyboardButton("💬 WhatsApp", callback_data="service_whatsapp")],
-        [InlineKeyboardButton("✈️ Telegram", callback_data="service_telegram")]
+
+    keyboard=[
+        [InlineKeyboardButton("📘 Facebook",callback_data="service_facebook")],
+        [InlineKeyboardButton("💬 WhatsApp",callback_data="service_whatsapp")],
+        [InlineKeyboardButton("✈️ Telegram",callback_data="service_telegram")]
     ]
-    await update.message.reply_text("👋 Dynamo OTP Bot\n\nSelect service:", reply_markup=InlineKeyboardMarkup(keyboard))
 
-# ===== User Callback Handler =====
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
+    await update.message.reply_text(
+        "👋 Dynamo OTP Bot\n\nSelect service:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def button_handler(update:Update,context:ContextTypes.DEFAULT_TYPE):
+
+    query=update.callback_query
     await query.answer()
-    data = query.data
-    uid = query.from_user.id
-
-    logging.info(f"User callback: {data}")
+    data=query.data
+    uid=query.from_user.id
 
     if data.startswith("service_"):
-        service = data.split("_")[1]
-        userService[uid] = service
-        await safe_edit_message(query, f"🌍 Country selection for {service.capitalize()}:", 
-                               reply_markup=get_country_keyboard(service, "country"))
-        return
 
-    if data.startswith("country_"):
-        service = userService.get(uid)
-        flag = data.split("_")[1]
-        userCountry[uid] = flag
-        countries = load_countries(service)
-        code = countries[flag]["code"]
-        numbers = read_numbers(service, code)
-        send = numbers[:3]
-        remain = numbers[3:]
-        overwrite_numbers(service, code, remain)
-        userCooldown[uid] = time.time()
+        service=data.split("_")[1]
+        userService[uid]=service
 
-        text = f"🔥 *Dynamo OTP Numbers*\n\n🌍 Country: {flag} {countries[flag]['name']}\n📊 Remaining: {len(remain)}\n\n📋 Numbers:\n"
-        for n in send: text += f"`+{n}`\n"
+        await query.edit_message_text(
+            "🌍 Select country",
+            reply_markup=get_country_keyboard(service,"country")
+        )
 
-        keyboard = [
-            [InlineKeyboardButton("➡️ Next 3 Numbers", callback_data="next")],
-            [InlineKeyboardButton("🌐 Join OTP Group", url="https://t.me/dynamo_otp_group")],
-            [InlineKeyboardButton("🌍 Change Country", callback_data="change_country")]
+    elif data.startswith("country_"):
+
+        service=userService[uid]
+        flag=data.split("_")[1]
+
+        countries=load_countries(service)
+        code=countries[flag]["code"]
+
+        numbers=read_numbers(service,code)
+
+        send=numbers[:3]
+        remain=numbers[3:]
+
+        overwrite_numbers(service,code,remain)
+
+        remaining=len(remain)
+
+        userCooldown[uid]=time.time()
+        userCountry[uid]=flag
+
+        text="🔥 *Dynamo OTP Numbers*\n\n"
+        text+=f"📦 Remaining Numbers: {remaining}\n\n"
+
+        for n in send:
+            text+=f"`+{n}`\n\n"
+
+        keyboard=[
+            [InlineKeyboardButton("➡️ Next 3 Numbers",callback_data="next")],
+            [InlineKeyboardButton("🌍 Change Country",callback_data="change_country")],
+            [InlineKeyboardButton("🔗 OTP BOT Group",url=GROUP_LINK)]
         ]
-        await safe_edit_message(query, text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-        return
 
-    if data == "next":
-        wait = cooldown_left(uid)
-        if wait > 0:
-            await query.answer(f"⏳ {wait} sec remaining", show_alert=True)
-            return
+        await query.edit_message_text(
+            text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
-        service = userService.get(uid)
-        flag = userCountry.get(uid)
-        countries = load_countries(service)
-        code = countries[flag]["code"]
-        numbers = read_numbers(service, code)
+    elif data=="next":
 
-        if not numbers:
-            await safe_edit_message(query, "❌ No numbers left.")
-            return
+        service=userService[uid]
+        flag=userCountry[uid]
 
-        send = numbers[:3]
-        remain = numbers[3:]
-        overwrite_numbers(service, code, remain)
-        userCooldown[uid] = time.time()
+        countries=load_countries(service)
+        code=countries[flag]["code"]
 
-        text = f"🔥 *Dynamo OTP Numbers*\n\n🌍 Country: {flag} {countries[flag]['name']}\n📊 Remaining: {len(remain)}\n\n📋 Numbers:\n"
-        for n in send: text += f"`+{n}`\n"
+        numbers=read_numbers(service,code)
 
-        keyboard = [
-            [InlineKeyboardButton("➡️ Next 3 Numbers", callback_data="next")],
-            [InlineKeyboardButton("🌐 Join OTP Group", url="https://t.me/dynamo_otp_group")],
-            [InlineKeyboardButton("🌍 Change Country", callback_data="change_country")]
+        send=numbers[:3]
+        remain=numbers[3:]
+
+        overwrite_numbers(service,code,remain)
+
+        remaining=len(remain)
+
+        text="🔥 *Next Numbers*\n\n"
+        text+=f"📦 Remaining Numbers: {remaining}\n\n"
+
+        for n in send:
+            text+=f"`+{n}`\n\n"
+
+        keyboard=[
+            [InlineKeyboardButton("➡️ Next 3 Numbers",callback_data="next")],
+            [InlineKeyboardButton("🌍 Change Country",callback_data="change_country")],
+            [InlineKeyboardButton("🔗 OTP BOT Group",url=GROUP_LINK)]
         ]
-        await safe_edit_message(query, text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+        await query.edit_message_text(
+            text,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif data=="change_country":
+
+        service=userService[uid]
+
+        await query.edit_message_text(
+            "🌍 Select country",
+            reply_markup=get_country_keyboard(service,"country")
+        )
+
+async def admin(update:Update,context:ContextTypes.DEFAULT_TYPE):
+
+    if not is_admin(update.effective_user.id):
         return
 
-    if data == "change_country":
-        service = userService.get(uid)
-        if service:
-            await safe_edit_message(query, f"🌍 Country selection for {service.capitalize()}:", 
-                                   reply_markup=get_country_keyboard(service, "country"))
-
-# ===== Admin Panel =====
-async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
-    keyboard = [
-        [InlineKeyboardButton("➕ Add Country", callback_data="admin_add_country")],
-        [InlineKeyboardButton("🗑 Delete Country", callback_data="admin_delete_country")],
-        [InlineKeyboardButton("➕ Add Numbers", callback_data="admin_add_numbers")],
-        [InlineKeyboardButton("🗑 Delete Numbers", callback_data="admin_delete_numbers")],
-        [InlineKeyboardButton("📊 Country Stats", callback_data="admin_stats")],
-        [InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast")]
+    keyboard=[
+        [InlineKeyboardButton("➕ Add Country",callback_data="admin_add_country")],
+        [InlineKeyboardButton("🗑 Delete Country",callback_data="admin_delete_country")],
+        [InlineKeyboardButton("➕ Add Numbers",callback_data="admin_add_numbers")],
+        [InlineKeyboardButton("🗑 Delete Numbers",callback_data="admin_delete_numbers")],
+        [InlineKeyboardButton("📊 Country Stats",callback_data="admin_stats")],
+        [InlineKeyboardButton("📢 Broadcast",callback_data="admin_broadcast")]
     ]
-    await update.message.reply_text("🔧 Admin Panel - Select Action:", reply_markup=InlineKeyboardMarkup(keyboard))
 
-# ===== Admin Callback Handler (FULL) =====
-async def admin_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
+    await update.message.reply_text(
+        "🔧 Admin Panel",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def admin_buttons(update:Update,context:ContextTypes.DEFAULT_TYPE):
+
+    query=update.callback_query
     await query.answer()
-    data = query.data
-    uid = query.from_user.id
 
-    if not is_admin(uid): return
-    logging.info(f"Admin callback: {data}")
+    data=query.data
+    uid=query.from_user.id
 
-    # ===== Country Stats =====
-    if data == "admin_stats":
-        keyboard = [
-            [InlineKeyboardButton("Telegram", callback_data="stats_telegram")],
-            [InlineKeyboardButton("Facebook", callback_data="stats_facebook")],
-            [InlineKeyboardButton("Whatsapp", callback_data="stats_whatsapp")]
+    if not is_admin(uid):
+        return
+
+    if data=="admin_stats":
+
+        text="📊 Country Stats\n\n"
+
+        for service in ["telegram","facebook","whatsapp"]:
+
+            countries=load_countries(service)
+
+            for f,d in countries.items():
+                count=len(read_numbers(service,d["code"]))
+                text+=f"{service} {f} {d['name']} : {count}\n"
+
+        await query.edit_message_text(text)
+
+    elif data=="admin_broadcast":
+
+        context.user_data["step"]="broadcast"
+        await query.edit_message_text("Send broadcast message")
+
+    elif data in ["admin_add_country","admin_delete_country","admin_add_numbers","admin_delete_numbers"]:
+
+        context.user_data["step"]=data
+
+        keyboard=[
+            [InlineKeyboardButton("Telegram",callback_data=f"{data}_telegram")],
+            [InlineKeyboardButton("Facebook",callback_data=f"{data}_facebook")],
+            [InlineKeyboardButton("Whatsapp",callback_data=f"{data}_whatsapp")]
         ]
-        await safe_edit_message(query, "Select service to view stats:", reply_markup=InlineKeyboardMarkup(keyboard))
-        return
 
-    if data.startswith("stats_"):
-        service = data.split("_")[1]
-        countries = load_countries(service)
-        if not countries:
-            await safe_edit_message(query, f"❌ No countries available in {service}.")
-            return
+        await query.edit_message_text(
+            "Select service",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
-        text = f"📊 *{service.capitalize()} Country Stats*\n\n"
-        for flag, info in countries.items():
-            code = info["code"]
-            numbers = read_numbers(service, code)
-            text += f"{flag} {info['name']}: {len(numbers)} numbers remaining\n"
-        await safe_edit_message(query, text, parse_mode="Markdown")
-        return
+    elif "_telegram" in data or "_facebook" in data or "_whatsapp" in data:
 
-    # ===== Broadcast =====
-    if data == "admin_broadcast":
-        context.user_data["step"] = "broadcast"
-        await safe_edit_message(query, "✉️ Send the message to broadcast to all users:")
-        return
+        action,service=data.rsplit("_",1)
 
-    # ===== Existing Admin Actions =====
-    if data in ["admin_add_country", "admin_delete_country", "admin_add_numbers", "admin_delete_numbers"]:
-        context.user_data["step"] = data
-        keyboard = [
-            [InlineKeyboardButton("Telegram", callback_data=f"{data}_telegram")],
-            [InlineKeyboardButton("Facebook", callback_data=f"{data}_facebook")],
-            [InlineKeyboardButton("Whatsapp", callback_data=f"{data}_whatsapp")]
-        ]
-        await safe_edit_message(query, "Select service first:", reply_markup=InlineKeyboardMarkup(keyboard))
-        return
+        context.user_data["admin_service"]=service
+        context.user_data["step"]=action
 
-    for action in ["admin_add_country", "admin_delete_country", "admin_add_numbers", "admin_delete_numbers"]:
-        if data.startswith(f"{action}_"):
-            service = data.split("_")[-1]
-            context.user_data["admin_service"] = service
-            context.user_data["step"] = action
-            countries = load_countries(service)
+        countries=load_countries(service)
 
-            if action == "admin_add_country":
-                await query.edit_message_text("Send country in format:\n🇧🇩|Bangladesh|bd")
-            elif action == "admin_delete_country":
-                if not countries:
-                    await safe_edit_message(query, "❌ No countries available.")
-                    return
-                keyboard = [[InlineKeyboardButton(f"{f} {info['name']}", callback_data=f"delcountry_{f}")] for f, info in countries.items()]
-                await safe_edit_message(query, "Select country to delete:", reply_markup=InlineKeyboardMarkup(keyboard))
-            elif action == "admin_add_numbers":
-                if not countries:
-                    await safe_edit_message(query, "❌ No countries available.")
-                    return
-                keyboard = [[InlineKeyboardButton(f"{f} {info['name']}", callback_data=f"addnum_{f}")] for f, info in countries.items()]
-                await safe_edit_message(query, "Select country to add numbers:", reply_markup=InlineKeyboardMarkup(keyboard))
-            elif action == "admin_delete_numbers":
-                if not countries:
-                    await safe_edit_message(query, "❌ No countries available.")
-                    return
-                keyboard = [[InlineKeyboardButton(f"{f} {info['name']}", callback_data=f"delnum_{f}")] for f, info in countries.items()]
-                await safe_edit_message(query, "Select country to delete all numbers:", reply_markup=InlineKeyboardMarkup(keyboard))
-            return
+        if action=="admin_add_country":
+            await query.edit_message_text("Send: 🇧🇩|Bangladesh|bd")
 
-    if data.startswith("delcountry_"):
-        service = context.user_data.get("admin_service")
-        flag = data.split("_")[1]
-        countries = load_countries(service)
+        elif action=="admin_delete_country":
+
+            keyboard=[
+                [InlineKeyboardButton(f"{f} {d['name']}",callback_data=f"delcountry_{f}")]
+                for f,d in countries.items()
+            ]
+
+            await query.edit_message_text(
+                "Select country",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+
+        elif action=="admin_add_numbers":
+
+            keyboard=[
+                [InlineKeyboardButton(f"{f} {d['name']}",callback_data=f"addnum_{f}")]
+                for f,d in countries.items()
+            ]
+
+            await query.edit_message_text(
+                "Upload TXT file",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+
+        elif action=="admin_delete_numbers":
+
+            keyboard=[
+                [InlineKeyboardButton(f"{f} {d['name']}",callback_data=f"delnum_{f}")]
+                for f,d in countries.items()
+            ]
+
+            await query.edit_message_text(
+                "Select country",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+
+    elif data.startswith("addnum_"):
+
+        flag=data.split("_")[1]
+        context.user_data["addnum_flag"]=flag
+        context.user_data["step"]="upload_numbers"
+
+        await query.edit_message_text("📄 Upload numbers TXT file")
+
+    elif data.startswith("delnum_"):
+
+        flag=data.split("_")[1]
+        service=context.user_data["admin_service"]
+
+        countries=load_countries(service)
+        code=countries[flag]["code"]
+
+        delete_numbers(service,code)
+
+        await query.edit_message_text("✅ Numbers deleted")
+
+    elif data.startswith("delcountry_"):
+
+        flag=data.split("_")[1]
+        service=context.user_data["admin_service"]
+
+        countries=load_countries(service)
+
         if flag in countries:
-            code = countries[flag]["code"]
-            delete_numbers(service, code)
+            code=countries[flag]["code"]
+
             del countries[flag]
-            save_countries(service, countries)
-            await safe_edit_message(query, f"✅ Country {flag} deleted from {service}")
-        context.user_data.clear()
+            save_countries(service,countries)
+
+            delete_numbers(service,code)
+
+            await query.edit_message_text("✅ Country deleted")
+
+async def message_handler(update:Update,context:ContextTypes.DEFAULT_TYPE):
+
+    uid=update.effective_user.id
+
+    if not is_admin(uid):
         return
 
-    if data.startswith("addnum_"):
-        flag = data.split("_")[1]
-        context.user_data["addnum_flag"] = flag
-        await safe_edit_message(query, f"Send numbers line by line for {flag}")
-        return
+    step=context.user_data.get("step")
+    service=context.user_data.get("admin_service")
 
-    if data.startswith("delnum_"):
-        service = context.user_data.get("admin_service")
-        flag = data.split("_")[1]
-        countries = load_countries(service)
-        if flag in countries:
-            code = countries[flag]["code"]
-            delete_numbers(service, code)
-            await safe_edit_message(query, f"✅ All numbers for {flag} have been deleted in {service}.")
-        context.user_data.clear()
-        return
+    if step=="broadcast":
 
-# ===== Admin Message Handler =====
-async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    if not is_admin(uid): return
+        text=update.message.text
 
-    step = context.user_data.get("step")
-    service = context.user_data.get("admin_service")
-    text = update.message.text.strip()
-
-    if not step:
-        return
-
-    # ===== Broadcast Message =====
-    if step == "broadcast":
-        sent_count = 0
-        for user_id in allUsers:
+        for u in allUsers:
             try:
-                await context.bot.send_message(user_id, text)
-                sent_count += 1
+                await context.bot.send_message(u,text)
             except:
-                continue
-        await update.message.reply_text(f"✅ Broadcast sent to {sent_count} users.")
-        context.user_data.clear()
-        return
+                pass
 
-    if step == "admin_add_country":
+        await update.message.reply_text("Broadcast done")
+        context.user_data.clear()
+
+    elif step=="admin_add_country":
+
         try:
-            flag, name, code = [x.strip() for x in text.split("|")]
-            countries = load_countries(service)
-            countries[flag] = {"name": name, "code": code}
-            save_countries(service, countries)
-            await update.message.reply_text(f"✅ Country {flag} {name} added to {service}")
+            flag,name,code=update.message.text.split("|")
+
+            countries=load_countries(service)
+
+            countries[flag]={
+                "name":name,
+                "code":code
+            }
+
+            save_countries(service,countries)
+
+            await update.message.reply_text("✅ Country added")
+
         except:
-            await update.message.reply_text("❌ Format invalid! Use: 🇧🇩|Bangladesh|bd")
+            await update.message.reply_text("❌ Format:\n🇧🇩|Bangladesh|bd")
+
         context.user_data.clear()
+
+async def file_handler(update:Update,context:ContextTypes.DEFAULT_TYPE):
+
+    uid=update.effective_user.id
+
+    if not is_admin(uid):
         return
 
-    if step == "admin_add_numbers":
-        flag = context.user_data.get("addnum_flag")
-        countries = load_countries(service)
-        code = countries[flag]["code"]
-        numbers = [x.strip() for x in text.splitlines() if x.strip()]
-        append_numbers(service, code, numbers)
-        await update.message.reply_text(f"✅ {len(numbers)} numbers added to {flag} in {service}")
-        context.user_data.clear()
+    if context.user_data.get("step")!="upload_numbers":
         return
 
-# ===== Main =====
+    file=await update.message.document.get_file()
+
+    path="upload.txt"
+
+    await file.download_to_drive(path)
+
+    with open(path) as f:
+        numbers=[x.strip() for x in f.readlines() if x.strip()]
+
+    flag=context.user_data["addnum_flag"]
+    service=context.user_data["admin_service"]
+
+    countries=load_countries(service)
+    code=countries[flag]["code"]
+
+    append_numbers(service,code,numbers)
+
+    country_name=countries[flag]["name"]
+
+    await update.message.reply_text(
+f"""✅ Numbers Added Successfully
+
+🌍 Country: {country_name}
+🔰 Service: {service}
+
+📦 Added Numbers: {len(numbers)}
+"""
+)
+
+    context.user_data.clear()
+
 def main():
-    app = Application.builder().token(TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("admin", admin))
+    app=Application.builder().token(TOKEN).build()
 
-    app.add_handler(CallbackQueryHandler(button_handler, 
-        pattern=r'^(service_|country_|next|change_country)'))
+    app.add_handler(CommandHandler("start",start))
+    app.add_handler(CommandHandler("admin",admin))
 
-    app.add_handler(CallbackQueryHandler(admin_buttons, 
-        pattern=r'^(admin|admin_add_country|admin_delete_country|admin_add_numbers|admin_delete_numbers|delcountry_|addnum_|delnum_|admin_stats|stats_|admin_broadcast)'))
+    app.add_handler(CallbackQueryHandler(button_handler,pattern="^(service_|country_|next|change_country)"))
 
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+    app.add_handler(CallbackQueryHandler(admin_buttons))
 
-    print("✅ Dynamo OTP Bot Running... (Country Stats & Broadcast Fixed)")
-    app.run_polling()
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND,message_handler))
+    app.add_handler(MessageHandler(filters.Document.ALL,file_handler))
 
-if __name__ == "__main__":
+    print("✅ Dynamo OTP Bot Running")
+
+    app.run_polling(drop_pending_updates=True)
+
+if __name__=="__main__":
     main()
