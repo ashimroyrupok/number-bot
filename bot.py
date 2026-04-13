@@ -5,7 +5,7 @@ import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
 
-TOKEN = "8637771357:AAEKuRfsiG--3bjEsgUKcTDLE-zVVuwseFA"
+TOKEN = "8637771357:AAH3yNUkf5YlUU2jM9-xxOkp6TyjHTHzDhM"
 ADMIN_IDS = [5474672519,8278688915,6058876211]
 COOLDOWN = 10
 
